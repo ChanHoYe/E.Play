@@ -1,6 +1,5 @@
 package login;
 
-import java.awt.EventQueue;
 import java.awt.Graphics;
 import java.awt.GridLayout;
 import java.awt.Image;
@@ -8,9 +7,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
-import java.awt.event.WindowEvent;
-import java.awt.event.WindowListener;
-import java.io.IOException;
 
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -24,41 +20,37 @@ import javax.swing.KeyStroke;
 
 import client.Client;
 import client.DTO;
-import login.Avatar;
-import login.Find;
-import login.Join;
+import client.Exit;
+import client.Interface;
+import client.LoginInterface;
+import client.SocketInfo;
 import login.Login;
-import login.MyListener;
-import main.Main;
 import server.Data;
 
 public class Login extends JFrame {
-	DTO dto = new DTO();
-	public static void main(String[] args) {
-		EventQueue.invokeLater(new Runnable() {
-			public void run() {
-				try {
-					Login frame = new Login();
-					frame.setVisible(true);
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
-		});
-	}
-	public Login() {
+	private Client client;
+	private SocketInfo info = null;
+	
+	private volatile boolean Status = true;
+	private Data data;
+	
+	public Login(Client client) {
+		this.info = client.getInfo();
+		this.client = client;
+		
 		setTitle("Welcome to E.Play!!!");
 		setSize(1100, 700);
 		setResizable(false);
-		setLocation(0, 0);
-		setDefaultCloseOperation(EXIT_ON_CLOSE);
-		addWindowListener(new MyListener(this));
+		setLocationRelativeTo(null);
+		setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+		addWindowListener(new Exit("LOGIN", client));
 		ImageIcon icon = new ImageIcon("img/background.png");
 		Image originImg = icon.getImage();
 		Image changedImg = originImg.getScaledInstance(1100, 700, Image.SCALE_SMOOTH);
 		ImageIcon Icon = new ImageIcon(changedImg);
-		// panel
+		
 		JPanel panel = new JPanel() {
+			@Override
 			public void paintComponent(Graphics g) {
 				g.drawImage(Icon.getImage(), 0, 0, null);
 				setOpaque(false);// 배경 띄워주기
@@ -67,11 +59,12 @@ public class Login extends JFrame {
 		};
 		
 		placeLoginPanel(panel);
-		getContentPane().add(panel);
+		add(panel);
 		setVisible(true);
 	}
 	
-	public void placeLoginPanel(JPanel panel){
+	private void placeLoginPanel(JPanel panel) {
+		LoginInterface loginI = new Interface();
 		panel.setLayout(null);	
 		JPanel total = new JPanel();
 		JPanel text = new JPanel();
@@ -97,7 +90,6 @@ public class Login extends JFrame {
 		idText.setBorder(javax.swing.BorderFactory.createEmptyBorder());
 		idText.setBounds(0, 0, 160, 25);
 		idText.setFocusable(true);
-		
 		text.add(idText);
 		
 		JPasswordField passText = new JPasswordField(20);
@@ -112,7 +104,7 @@ public class Login extends JFrame {
 			public void actionPerformed(ActionEvent e) {
 				Object obj = e.getSource();
 				if((JButton)obj == btnFind){
-					new Find("ID/PW 찾기");
+					client.exeFind();
 				}
 			}
 		});
@@ -128,7 +120,7 @@ public class Login extends JFrame {
 			public void actionPerformed(ActionEvent e) {
 				Object obj = e.getSource();
 				if((JButton)obj == btnJoin) {
-					Join join = new Join();
+					client.exeJoin();
 				}
 			}
 		});
@@ -144,7 +136,8 @@ public class Login extends JFrame {
 		btnLogin.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
 				Object obj = e.getSource();
-				if((JButton)obj == btnLogin || e.getActionCommand() == "login"){
+				if((JButton)obj == btnLogin || e.getActionCommand() == "login") {
+					DTO dto = new DTO();
 					dto.setId(idText.getText());
 					dto.setPassword(passText.getText());
 					idText.setText("");
@@ -153,26 +146,32 @@ public class Login extends JFrame {
 						JOptionPane.showMessageDialog(null, "ID를 입력하세요.", "알림", JOptionPane.INFORMATION_MESSAGE);
 					else {
 						try {
-							Data data = Client.checkID(dto);
-							String result = data.getSegment();
-							if(result.equals("NOID"))
+							loginI.login(client.getInfo(), dto);
+							while (Status) {
+							}
+							Status = true;
+							String seg = data.getSegment();
+							if(seg.equals("NOID"))
 								JOptionPane.showMessageDialog(null, "ID가 존재하지 않습니다.", "경고", JOptionPane.WARNING_MESSAGE);
-							else if(result.equals("NOPASS"))
+							else if(seg.equals("NOPASS"))
 								JOptionPane.showMessageDialog(null, "Password가 틀립니다.", "경고", JOptionPane.WARNING_MESSAGE);
-							else if(result.equals("DUPLOGIN"))
+							else if(seg.equals("DUPLOGIN"))
 								JOptionPane.showMessageDialog(null, "이미 로그인 되어 있습니다.", "경고", JOptionPane.WARNING_MESSAGE);
-							else{
-								String[] arr = data.getData().split(" ");
-								dto.setName(arr[0]);
-								dto.setAge(Integer.parseInt(arr[1]));
-								dto.setAvatar(Integer.parseInt(arr[2]));
+							else {
+								DTO tmp = data.getDTO();
+								dto.setName(tmp.getName());
+								dto.setAge(tmp.getAge());
+								dto.setAvatar(tmp.getAvatar());
+								dto.setPoint(tmp.getPoint());
+								dto.hidePassword();
+								client.setDTO(dto);
 								if(dto.getAvatar()==0){
-									new Avatar(dto);
-									dispose();
+									client.exeAvatar();
+									client.termLogin();
 								}
 								else{
-									new Main(dto);
-									dispose();
+									client.exeMain();
+									client.termLogin();
 								}
 							}
 						} catch (Exception e1) {
@@ -217,43 +216,9 @@ public class Login extends JFrame {
 		});
 		total.add(btnLogin);
 	}
-}
-
-class MyListener implements WindowListener {
-	private Login login;
 	
-	MyListener(Login login) {
-		this.login = login;
-	}
-	@Override
-	public void windowClosing(WindowEvent e) {
-		int exit = JOptionPane.showConfirmDialog(login, "종료하시겠습니까?", "Log Out", JOptionPane.YES_NO_OPTION);
-		if (exit == 0) {
-			try {
-				Client.Socket.close();
-				//Client.ChatSocket.close();
-			} catch (IOException e1) {
-				e1.printStackTrace();
-			}
-			System.exit(0);
-		}
-	}
-	@Override
-	public void windowActivated(WindowEvent e) {
-	}
-	@Override
-	public void windowClosed(WindowEvent e) {
-	}
-	@Override
-	public void windowDeactivated(WindowEvent e) {
-	}
-	@Override
-	public void windowDeiconified(WindowEvent e) {
-	}
-	@Override
-	public void windowIconified(WindowEvent e) {
-	}
-	@Override
-	public void windowOpened(WindowEvent e) {
+	public void setData(Data data) {
+		this.data = data;
+		this.Status = false;
 	}
 }

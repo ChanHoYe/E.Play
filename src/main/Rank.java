@@ -5,11 +5,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.StringTokenizer;
 import java.util.Vector;
 
 import javax.swing.JButton;
@@ -24,12 +20,18 @@ import javax.swing.ListSelectionModel;
 import javax.swing.table.DefaultTableModel;
 
 import client.Client;
-import login.Avatar;
+import client.DataInterface;
+import client.Interface;
+import client.LoginInterface;
 import server.Data;
 
 public class Rank extends JFrame {
-	public Rank() {
-		JTable table = new JTable();
+	private JTable table;
+	private DefaultTableModel model;
+	
+	public Rank(Client client) {
+		DataInterface dataI = new Interface();
+		table = new JTable();
 		JScrollPane scrollPane = new JScrollPane(table);
 		JLabel label = new JLabel("¿Ã∏ß : ");
 		JTextField searchText = new JTextField(10);
@@ -45,41 +47,17 @@ public class Rank extends JFrame {
 		Vector<String> userRow;
 		setTitle("∑©≈∑");
 		setResizable(false);
-		setLocation(800, 350);
+		setLocationRelativeTo(null);
 		setVisible(true);
 		
 		table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-		DefaultTableModel model = new DefaultTableModel(userColumn, 0) {
+		model = new DefaultTableModel(userColumn, 0) {
 			@Override
 			public boolean isCellEditable(int row, int column) {
 				return false;
 			}
 		};
-		
-		ArrayList<String> name = new ArrayList<String>();
-		ArrayList<String> point = new ArrayList<String>();
-		ArrayList<String> rank = new ArrayList<String>();
-		Data data;
-		
-		try {
-			data = Client.getRank();
-			name = data.name;
-			point = data.point;
-			rank = data.rank;
-		} catch (IOException e1) {
-			e1.printStackTrace();
-		} catch (ClassNotFoundException e2) {
-			e2.printStackTrace();
-		}
-		
-		for(int i=0;i<name.size();++i) {
-				userRow = new Vector<String>();
-				userRow.addElement(rank.get(i));
-				userRow.addElement(name.get(i));
-				userRow.addElement(point.get(i));
-				model.addRow(userRow);
-		}
-		table.setModel(model);
+				
 		add(panel, BorderLayout.NORTH);
 		add(scrollPane, BorderLayout.CENTER);
 		pack();
@@ -127,5 +105,26 @@ public class Rank extends JFrame {
 				}
 			}
 		});
+		
+		dataI.getRank(client.getInfo());
+	}
+		
+	public void setData(Data data) {
+		ArrayList<String> name;
+		ArrayList<String> point;
+		ArrayList<String> rank;
+		
+		name = data.getName();
+		point = data.getPoint();
+		rank = data.getRank();
+		
+		for(int i=0;i<name.size();++i) {
+				Vector<String> userRow = new Vector<String>();
+				userRow.addElement(rank.get(i));
+				userRow.addElement(name.get(i));
+				userRow.addElement(point.get(i));
+				model.addRow(userRow);
+		}
+		table.setModel(model);
 	}
 }

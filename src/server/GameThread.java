@@ -1,128 +1,241 @@
 package server;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.net.Socket;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.Hashtable;
 
-public class GameThread {
-private static final int PORT = 9002;
+import client.DTO;
+import client.UserStatus;
+
+public class GameThread extends Thread {	
+	private static final Hashtable<ObjectOutputStream, DTO> userList = new Hashtable<ObjectOutputStream, DTO>();
+	private static final RoomManager roomManager = new RoomManager();
+	private static ArrayList<String> room1 = new ArrayList<String>();
+	private static ArrayList<String> room2 = new ArrayList<String>();
+	private static ArrayList<String> room3 = new ArrayList<String>();
+	private static ArrayList<String> room4 = new ArrayList<String>();
 	
-	private static HashSet<String> IDs = new HashSet<String>();
-	private static HashSet<String> wait = new HashSet<String>();
-	private static HashSet<String> room1 = new HashSet<String>();
-	private static HashSet<String> room2 = new HashSet<String>();
-	private static HashSet<String> room3 = new HashSet<String>();
-	private static HashSet<String> room4 = new HashSet<String>();
-	private static HashMap<String, String> map = new HashMap<String, String>();
-	private static HashSet<PrintWriter> writers = new HashSet<PrintWriter>();
-	
-	private String id;
 	private Socket socket;
-	private BufferedReader in;
-	private PrintWriter out;
+	private ObjectInputStream in;
+	private ObjectOutputStream out;
 	
 	public GameThread(Socket socket) {
 		this.socket = socket;
 	}
 	
+	@Override
 	public void run() {
 		try {
-			String temp = null;
-			Boolean valid = false;
-			// Create character streams for the socket.
-			in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-			out = new PrintWriter(socket.getOutputStream(), true);
+			in = new ObjectInputStream(socket.getInputStream());
+			out = new ObjectOutputStream(socket.getOutputStream());
 			
-			while (true) {
-				id = in.readLine();
-				if (id == null) {
-					return;
+			while(true) {
+				GameData data = (GameData)in.readObject();
+				String type = data.getType();
+				String segment = data.getSegment();
+				
+				if(type.equals("ROOM")) {
+					getRoom(segment, data);
+				} else if(type.equals("GAME")) {
+					getGame(segment, data);
+				} else if(type.equals("ENTER")) {
+					synchronized(userList) {
+						userList.put(out, data.getDTO());
+					}
+				} else if(type.equals("UPDATE")) {
+					int locationValue = data.getLocationValue();
+					int statusValue = data.getStatusValue();
+					synchronized(userList) {
+						userList.get(out).setLocationValue(locationValue);
+						userList.get(out).setStatusValue(statusValue);
+					}
+				} else if(type.equals("OUT")) {
+					synchronized(userList) {
+						if(userList.containsKey(out))
+							userList.remove(out);
+					}
+					sleepThread();
+					break;
 				}
-				synchronized (IDs) {
-					if (!IDs.contains(id)) {
-						IDs.add(id);
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch(ClassNotFoundException e) {
+			e.printStackTrace();
+		} finally {
+			try {
+				if(in != null)
+					in.close();
+				if(out != null)
+					out.close();
+				socket.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+	
+	private void sleepThread() {
+		try {
+			Thread.sleep(3000);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	private void getGame(String segment, GameData data) {
+		GameData writeData;
+		try {
+			if(segment.equals("START")) {
+				int roomNum = userList.get(out).getLocationValue();
+				roomManager.getList().get(roomNum).setStatus(UserStatus.Status.GAME);
+				synchronized(userList) {
+					for(ObjectOutputStream stream : userList.keySet()) {
+						if(userList.get(stream).getLocationValue() == userList.get(out).getLocationValue()) {
+							writeData = new GameData("GAME", "START");
+							stream.writeObject(writeData);
+							stream.flush();
+						}
+					}
+				}
+			} else if(segment.equals("STOP")) {
+				synchronized(userList) {
+					switch (userList.get(out).getLocationValue()) {
+					case 1:
+						room1.clear();
+						break;
+					case 2:
+						room2.clear();
+						break;
+					case 3:
+						room3.clear();
+						break;
+					case 4:
+						room4.clear();
+						break;
+					default:
 						break;
 					}
+					
+					
 				}
-			}
-			
-			writers.add(out);
-			
-			for (PrintWriter writer : writers) {
-				writer.println("ENTRANCE " + "<" + id + "> 님이 입장하셨습니다.");
-			}
-			
-			while (true) {
-				String input = in.readLine();
-
-				if (input == null) {
-					return;
-				}
-			
-				Iterator<String> iter = IDs.iterator();
-				while (iter.hasNext()) {
-					String s = iter.next();
-					if (input.startsWith(s)) {
-						temp = s;
-						valid = true;
-					}
-				}
-
-				if (valid) {
-					if (!temp.contains(id)) {
-						out.println("OWN " + id + " -> " + temp.substring(1, temp.length() - 2) + ": "
-								+ input.substring(temp.length() + 1));
-						
-						for (PrintWriter writer : writers) {
-							writer.println("WHISPER " + temp.substring(1, temp.length() - 2) + id + ": "
-									+ input.substring(temp.length() + 1));
+			} else if(segment.equals("CHECK")) {
+				String word = data.getWord();
+				int roomNum = data.getRoomNum();
+				String id = data.getID();
+				
+				boolean valid = roomManager.getList().get(roomNum).checkAnswer(word, id);
+				
+				if(valid) {
+					synchronized (userList) {
+						writeData = new GameData("GAME", "LIST", id, roomManager.getList().get(roomNum).getUsedList());
+						for (ObjectOutputStream stream : userList.keySet()) {
+							if (userList.get(stream).getLocationValue() == roomNum) {
+								stream.writeObject(writeData);
+								stream.flush();
+							}
 						}
-					} else {
-						out.println("OWN 자신에게 보낼 수 없습니다.");
 					}
-					valid = false;
 				} else {
-					if (input.substring(0, 1).equals("<") && input.contains("/>")) {
-						out.println("ERROR " + "상대가 존재하지 않습니다.");
-					}
-
-					else {
-						for (PrintWriter writer : writers) {
-							writer.println("MESSAGE " + id + ": " + input);
+					synchronized (userList) {
+						writeData = new GameData("GAME", "FAIL", id);
+						for (ObjectOutputStream stream : userList.keySet()) {
+							if (userList.get(stream).getLocationValue() == roomNum) {
+								stream.writeObject(writeData);
+								stream.flush();
+							}
 						}
 					}
 				}
 			}
 		} catch (IOException e) {
-			System.out.println(e);
-		} finally {
-			for (PrintWriter writer : writers) {
-				writer.println("EXIT " + "<" + id + "> 님이 퇴장하셨습니다.");
-			}
-			if (id != null) {
-				String s = null;
-				Iterator<String> iter = IDs.iterator();
-				while (iter.hasNext()) {
-					s = iter.next();
-					if (s.contains(id)) {
-						break;
+			e.printStackTrace();
+		}
+	}
+	
+	private void getRoom(String segment, GameData data) {
+		GameData writeData;
+		try {
+			if (segment.equals("CREATE")) {
+				int roomNum = data.getRoomNum();
+				String roomName = data.getRoomName();
+
+				if (!roomManager.isExist(roomNum)) {
+					roomManager.createRoom(data.getDTO(), roomName, roomNum);
+					System.out.println(roomNum +" " +1);
+					synchronized (userList) {
+						for (ObjectOutputStream stream : userList.keySet()) {
+							if (userList.get(stream).getLocationValue() == 0) {
+								if (stream != out) {
+									writeData = new GameData("ROOM", "LIST", roomManager.getList());
+									stream.writeObject(writeData);
+									stream.flush();
+								}
+							}
+						}
 					}
 				}
-				IDs.remove(s);
-				IDs.remove(id);
+			} else if (segment.equals("ENTER")) {
+				int roomNum = data.getDTO().getLocationValue();
+				
+				if (roomManager.isExist(roomNum)) {
+					roomManager.enterRoom(data.getDTO(), roomNum);
+					
+					synchronized (userList) {
+						for (ObjectOutputStream stream : userList.keySet()) {
+							if (userList.get(stream).getLocationValue() == roomNum) {
+								if (!stream.equals(out)) {
+									writeData = new GameData("ROOM", roomManager.getUser(roomNum), "USER");
+									stream.writeObject(writeData);
+									stream.flush();
+								}
+							}
+						}
+					}
+				} else {
+					writeData = new GameData("ROOM", "FAIL");
+					out.writeObject(writeData);
+					out.flush();
+				}				
+			} else if (segment.equals("EXIT")) {
+				int roomNum = data.getDTO().getLocationValue();
+				
+				if (roomManager.isExist(roomNum)) {
+					roomManager.getList().get(roomNum).exitRoom(data.getDTO().getId());
+				}
+				synchronized(userList) {
+					for (ObjectOutputStream stream : userList.keySet()) {
+						if (stream != out) {
+							if (userList.get(stream).getLocationValue() == roomNum) {
+								writeData = new GameData("ROOM", roomManager.getUser(roomNum), "USER");
+								stream.writeObject(writeData);
+								stream.flush();
+							}
+							if (userList.get(stream).getLocationValue() == 0) {
+								writeData = new GameData("ROOM", "LIST", roomManager.getList());
+								stream.writeObject(writeData);
+								stream.flush();
+							}
+						}
+					}
+				}
+			} else if (segment.equals("UPDATELIST")) {
+				writeData = new GameData("ROOM", "LIST", roomManager.getList());
+				out.writeObject(writeData);
+				out.flush();
+			} else if (segment.equals("UPDATEUSER")) {
+				int roomNum = data.getRoomNum();
+				
+				writeData = new GameData("ROOM", roomManager.getUser(roomNum), "USER");
+				System.out.println(roomManager.getUser(roomNum).size() + " " + roomNum);
+				out.writeObject(writeData);
+				out.flush();
 			}
-			if (out != null) {
-				writers.remove(out);
-			}
-			try {
-				socket.close();
-			} catch (IOException e) {
-			}
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
 	}
 }
